@@ -1,0 +1,238 @@
+---
+title: "ISLML_17307110448_Yunsiyu"
+author: "Yun Siyu"
+date: "2019年11月13日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Speed Dating——非诚勿扰
+##案例背景
+近年来相亲电视节目层出不穷，婚恋市场异常火爆。据统计婚恋交友市场在2016年收入近百亿收入。每个单身狗怎么才能获得异性的芳心？婚恋网站如何才能在最短的时间内帮助有婚恋需求的人找到自己心仪的对象？或许数据科学的思维可以帮我们找到这些问题的答案。
+
+##数据介绍
+案例数据提供了芝加哥商学院相亲实验数据。该数据是芝加哥商学院Ray Fisman教授和Sheena Iyengar 教授2002年至2004年组织的相亲实验数据。实验的开始，组织者在该校网站上招募相亲者。志愿者需要在网站上注册，经审核后方可参与相亲活动。注册时需要留下个人信息，包括性别、年龄、种族、从事领域和兴趣。而由于数据集变量众多，请先查看案例推文什么影响因素决定“非诚勿扰”，了解数据变量。
+  
+
+##学习目标
+1. 了解数据的基本处理方法；
+2. 学会对数据进行统计分析，并且适当解读。
+3. 学会根据数据案例，应用决策树和随机森林的方法构建模型，并对模型结果进行解读
+##准备工作
+```{r}
+#清除工作空间
+cat("\014");rm(list=ls())
+warnings('off')
+```
+```{r}
+library('ggplot2')
+library('dplyr')
+library('sqldf')
+library('rpart')
+library('rpart.plot')
+```
+
+##任务一
+找到数据data，读入样本数据，命名为raw.data;
+```{r}
+raw_data <- read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\hw7zip\\assignment7\\Speed Dating Data.csv')
+```
+##任务二
+统计参与此次调查的男性与女性的人数，并绘制条形图； 
+```{r}
+#更改对应值
+raw_data$gender[raw_data$gender==0] <- '女'
+raw_data$gender[raw_data$gender==1] <- '男'
+```
+```{r}
+data <- sqldf("select distinct iid, gender, race from raw_data")
+
+```
+
+```{r}
+#将性别单独列出
+sex <- data %>% group_by(gender) %>% summarize(count = n())
+p <- ggplot(data = sex, mapping = aes(x = gender, y = count, fill = gender))
+p + geom_bar(stat = 'identity', width = 0.5)+geom_text(aes(vjust = -0.5, hjust = 0.5, label=count,show.legend = F))
+```
+
+    由上述柱状图可知，相亲男女比例均衡
+##任务三
+统计参与此次调查的人群分性别、不同种族的人数，并绘制条形图；
+为什么需要了解被调查人群的男女比例和种族分布呢？说说你的理解；  
+```{r}
+#将种族单独列出
+Race <- data %>% group_by(gender,race) %>% summarize(count = n())
+#忽略空值
+Race <- na.omit(Race)
+Race$race[Race$race == 1] <- '非裔'
+Race$race[Race$race == 2] <- '欧洲裔'
+Race$race[Race$race == 3] <- '拉丁裔'
+Race$race[Race$race == 4] <- '亚裔'
+Race$race[Race$race == 6] <- '其他'
+```
+
+```{r}
+ggplot(Race,aes(x=factor(race),
+                y=count,
+                fill=factor(gender)))+
+  geom_bar(stat='identity',
+           position=position_dodge())+ 
+  geom_text(aes(vjust = -0.5, 
+                hjust = 0.5, 
+                label=count,show.legend = F),
+            position=position_dodge(width=0.9))+
+  scale_fill_discrete(name='性别',
+                      labels=c('男','女'))+
+  scale_x_discrete(name='种族')
+
+
+```
+
+    理解：   
+    通过调查人群的男女比例，我们可以推测出婚恋交友市场男女比例是否均衡，便于更好帮助婚恋网站选择客户（如果男性较多，那么婚恋网站需要更多的吸引女性顾客加入来帮助男性配对)  
+    通过调查人群的种族分布，我们可以推测出婚恋交友市场人群的种族分布。考虑到不同种族的价值观存在较大差异，了解种族便于更好的分析后续问题，并为婚恋网站提供需要设计的问卷问题（一般婚恋网站注册过程中需要填写问卷）
+##任务四
+查看相亲者对不同兴趣的偏好程度并绘制成直方图，观察图像，尝试解读直方图呈现的现象；
+提示：在相亲中最受欢迎的兴趣是什么？最不受欢迎的兴趣又是什么呢？ 
+```{r}
+#将兴趣单独列出
+interest <- raw_data[51:67]
+#英文名变成中文名
+interest <- interest %>%  rename(运动 = sports, 看体育赛事 = tvsports, 健身 = exercise, 进餐 = dining, 博物馆 = museums, 艺术 = art, 徒步旅行 = hiking, 博彩 = gaming, 逛夜店 = clubbing, 阅读 = reading,  看电视 = tv, 戏剧 = theater, 电影 = movies , 音乐会 = concerts, 音乐 = music, 购物 = shopping , 瑜伽 = yoga )
+```
+
+```{r}
+interest <- na.omit(interest)
+#apply函数求每列均值
+list_mean <- apply(interest,2,mean)
+```
+
+```{r}
+#构建兴趣列表
+ls <- data.frame( colnames(interest), list_mean)
+ls <- ls %>%  rename(均值 = list_mean,兴趣 = colnames.interest.)
+ls <- ls[order(ls$均值,decreasing=F),];
+#调整level
+ls$兴趣  <-  factor(ls$兴趣,levels=as.vector(ls$兴趣))
+```
+
+```{r}
+p <- ggplot(data = ls, mapping = aes(x = 兴趣, y = 均值, fill = '#FF0000'))
+p+ 
+  geom_bar(stat = 'identity',width = 0.8) + xlab('兴趣') + 
+  ylab('均值') + 
+  guides(fill=FALSE) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+      由上述柱状图可知，在相亲中最受欢迎的兴趣是电影，最不受欢迎的兴趣是博彩
+##任务五
+用箱线图分别查看 是否进一步交往这一决策 和 相亲者在不同方面得分    （吸引力，真诚，智商，幽默，有抱负，共同爱好）的关系，观察这些箱线图，你可以得出哪些结论？   
+提示：哪些方面会显著影响相亲者们进一步交往的意愿呢？ 
+```{r}
+#par用来分区域画图
+par(mfrow = c(2,3))
+boxplot(attr ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的吸引力得分", main = "吸引力对相亲决策的影响")
+#boxplot直接画图
+boxplot(sinc ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的真诚得分", main = "真诚对相亲决策的影响")
+boxplot(intel ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的智商得分", main = "智商对相亲决策的影响")
+boxplot(fun ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的幽默得分", main = "幽默对相亲决策的影响")
+boxplot(amb ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的抱负得分", main = "有抱负对相亲决策的影响")
+boxplot(shar ~ dec, data = raw_data, col = "#1874CD", xlab = "决策：是否接受相亲对象", ylab = "对方的共同爱好得分", main = "共同爱好对相亲决策的影响")
+```
+      
+    1. 个人特质对是否愿意进一步交往有较大影响。
+    2. 从6个特质来看，除了雄心这一特质外，相亲者如果愿意改善其他5个特质，将会较大提升相亲成功概率。  
+    3. 影响相亲决策最明显的特质为吸引力和共同爱好，故而可以推测出当今时代人们还是注重外貌以及社交圈是否相同。  
+##任务六
+经过之前的任务，你已经对相亲成功的影响因素有了一些基本的了解。现在，尝试用分类决策树和随机森林的方法来分析相亲中主观指标上的得分对相亲结果的影响吧。  
+同样的，先准备建模分析需要的数据框；将女性和男性分别存储到名为female和male的数据框中，并用summary进行展示。  
+提示：主观指标为“吸引力”,“真诚”,“智力”,“幽默”,“雄心”,“共同爱好”。同时，考虑性别差异的存在，需要对男性和女性分开建模。  
+```{r}
+#挑选男女
+Female <- sqldf("select dec as 决定, attr as 吸引力, sinc as 真诚, intel as 智力, fun as 幽默, amb as 雄心, shar as 共同爱好 from raw_data where gender = '女'")
+Male <- sqldf("select dec as 决定, attr as 吸引力, sinc as 真诚, intel as 智力, fun as 幽默, amb as 雄心, shar as 共同爱好 from raw_data where gender = '男'")
+```
+```{r}
+Female$决定[Female$决定 == 0] <- '拒绝'
+Female$决定[Female$决定 == 1] <- '接受'
+Male$决定[Male$决定 == 0] <- '拒绝'
+Male$决定[Male$决定 == 1] <- '接受'
+```
+
+```{r}
+Female$决定 <- as.factor(Female$决定)
+Male$决定 <- as.factor(Male$决定)
+summary(Female)
+summary(Male)
+```
+##任务七
+利用rpart()函数对男性和女性分别建立决策树模型，并绘制得到的决策树；
+仔细对比，尝试解读模型结果和得到的结论；
+提示：可以用par(mfrow=c(1,2))将图像并列放置。 
+```{r}
+#构建分类决策树
+female_tree <- rpart(formula = 决定~吸引力+真诚+智力+幽默+雄心+共同爱好, method = "class",
+                     data = Female) 
+male_tree <- rpart(formula = 决定~吸引力+真诚+智力+幽默+雄心+共同爱好, method = "class",
+                   data = Male) 
+```
+```{r}
+#绘制图像，选择第二种
+par(mfrow=c(1,2))
+rpart.plot(female_tree, type = 2, main = "女性的决策")
+rpart.plot(male_tree, type = 2, main = "男性的决策")
+```
+
+      解读：   
+      1. 对于女性来说，吸引力如果小于6.8则拒绝，否则继续判断。如果共同爱好大于6.5，直接同意，小于3.5，直接拒绝。如在这中间，则再根据吸引力判断，小于7.3则拒绝，大于7.3则同意。
+      2. 对于男性来说，吸引力小于6.3则拒绝，否则继续判断。如幽默大于6.8，则果断同意，否则再判断。即共同爱好小于4.5拒绝，否则同意。
+      结论：  
+      1. 通过决策树可以看出，无论是男性和女性，吸引力对其相亲决策的影响都是最大的。   
+      2. 对于女性来说，她们比较注重相亲对象与自己的共同爱好，而对于男性来说，他们更关注相亲对象幽默感如何。 
+
+##计算题 
+###有工作的信息增益
+$$H(D) = -\frac {9}{15}log\frac {9}{15} - \frac {6}{15}log\frac {6}{15} = 0.971$$
+$$H(D|A_2 = yes) = -\frac {5}{5}log\frac {5}{5} - \frac {0}{5}log\frac {0}{5} = 0$$
+
+$$H(D|A_2 = no) = -\frac {4}{10}log\frac {4}{10} - \frac {6}{10}log\frac {6}{10} = 0.971$$
+$$H(D|A_2) = \frac {5}{15}*0 + \frac {10}{15}*0.971 = 0.647$$
+$$g(D,A_2) =  H(D)-H(D|A_2)= 0.324$$
+因此有工作的信息增益为0.324
+
+###有自己房子的信息增益
+$$H(D) = -\frac {9}{15}log\frac {9}{15} - \frac {6}{15}log\frac {6}{15} = 0.971$$
+$$H(D|A_3 = yes) = -\frac {6}{6}log\frac {6}{6} - \frac {0}{6}log\frac {0}{6} = 0$$
+$$H(D|A_3 = no) = -\frac {3}{9}log\frac {3}{9} - \frac {6}{9}log\frac {6}{9} = 0.918$$
+$$H(D|A_3) = \frac {6}{15}*0 + \frac {9}{15}*0.918 = 0.5508$$
+$$g(D,A_3) =  H(D)-H(D|A_3)= 0.42$$
+因此有自己房子的信息增益为0.42
+
+###信贷情况的信息增益
+$$H(D) = -\frac {9}{15}log\frac {9}{15} - \frac {6}{15}log\frac {6}{15} = 0.971$$
+$$H(D|A_4 = normal) = -\frac {1}{5}log\frac {1}{5} - \frac {4}{5}log\frac {4}{5} = 0.722$$
+$$H(D|A_4 = good) = -\frac {4}{6}log\frac {4}{6} - \frac {2}{6}log\frac {2}{6} = 0.918$$
+$$H(D|A_4 = verywell) = -\frac {4}{4}log\frac {4}{4} - \frac {0}{4}log\frac {0}{4} = 0$$
+$$H(D|A_4) = \frac {5}{15}*0.722 + \frac {6}{15}*0.918 + \frac {4}{15}*0 = 0.608$$
+$$g(D,A_4) =  H(D)-H(D|A_4)= 0.363$$
+因此信贷情况子的信息增益为0.363
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,228 @@
+---
+title: "ISLML_17307110448_Yunsiyu"
+author: "Yun Siyu"
+date: "2019年9月24日"
+output: html_document
+---
+#乐高数据可视化
+##案例背景
+乐高公司于1932年在丹麦创立，至今已有87年的发展历史。其发行的玩具套装构思惊奇、设计巧妙，受到世界各地各个年龄人们的喜爱，可谓是世界上最受欢迎的玩具之一。制作精美的玩具自然在各个环节都精雕细琢——从各个零件的设计及其颜色，再到零件间的搭配从而形成套装，甚至套装亦能互相结合形成新的、更大的套装；而同时，与时俱进的推出新的主题，也是乐高玩具经久不衰的重要原因之一。在本案例当中，我们将从零件到套装、再到主题，对乐高近70年出品的玩具进行分析，一睹乐高玩具世界的炫彩缤纷。
+
+##数据介绍
+本案例所用数据来源于乐高官方网站，包含主题、套装、零件等8个数据集，数据集之间通过变量相互连接。更详细数据介绍见本案例推文：https://mp.weixin.qq.com/s/gc7uy68Gl95GXJHOTTD1VQ    
+
+##学习目标
+1. ggplot2绘图
+2. 锻炼处理存在复杂关联的数据集的能力
+3. 使用tidyverse管道式写法进行数据处理
+##准备工作
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#清除工作空间
+cat("\014");rm(list=ls())
+```
+
+```{r warning=FALSE}
+#安装相应软件包
+library('ggthemes')
+library('plotly');
+library('rmarkdown');
+library('lubridate');
+library('sqldf');
+library('dygraphs');
+library('reshape2');
+library('dplyr');
+library('magrittr');
+library('scales');
+library('ggplot2');
+library('foreign');
+```
+
+## 任务一:数据读入
+1. 读入各个csv文件，并按照文件名进行命名
+2. 去掉1949年以前和2019年的数据
+```{r warning=FALSE}
+colors = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\colors.csv');
+inventories = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\inventories.csv');
+inventory_parts = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\inventory_parts.csv');
+inventory_sets = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\inventory_sets.csv');
+part_categories = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\part_categories.csv');
+part_relationships = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\part_relationships.csv');
+sets = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\sets.csv');
+themes = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\themes.csv')
+parts = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\homework3\\parts.csv')
+```
+```{r warning=FALSE}
+#读入数据完成后，利用sqldf包进行选择（变相删除工作）
+sets = sqldf("select * from sets where year>=1949 and year<2019")
+```
+
+
+##数据处理之颜色变量
+1. 计算color表中出现过的颜色的数量，将其命名为num_colors
+2. 将colors当中的rgb指标在开头增加‘#’，便于稍后绘图时，直接使用rgb录入配色
+3. 将颜色的rgb数据单独保存，命名为my_color
+```{r warning=FALSE}
+#使用unique函数统计出现过的颜色数量
+num_colors = length(unique(colors$name))
+num_colors
+```
+```{r warning=FALSE}
+#首先将rgb类型转化为字符串形式，随后利用paste函数进行字符串的链接
+colors$rgb = as.character(colors$rgb)
+colors$rgb = paste('#',colors$rgb,sep='')
+my_color = colors$rgb
+
+```
+
+##数据处理
+注：本任务主要针对数据集相互关联、生成新数据集，为使用ggplot2绘图准备数据    
+
+1.  计算每年套装平均零件数,命名为part_year,包含year、avg_parts两个变量
+```{r}
+#使用groupby函数进行分组，使用mean函数求平均
+part_year <- sets %>% group_by(year) %>% summarize(avg_parts=mean(num_parts))
+head(part_year)
+```
+2.  将part_category、parts、colors、themes、sets数据集当中的name变量分别命名为part_category_name、part_name、color_name、theme_name、set_name,便于以后区分
+```{r}
+#利用rename函数进行重命名
+part_categories <- part_categories %>%  rename(part_category_name = name)
+parts=parts %>%  rename(part_name = name)
+colors=colors %>%  rename(color_name = name)
+themes=themes %>%  rename(theme_name = name)
+sets=sets %>%  rename(set_name = name)
+```
+3.  将零件种类数据集和零件数据集左连接,连接所用变量为part_cat_id，新数据集命名为part_cat
+```{r}
+#利用leftjoin函数实现左连接
+part_cat <- left_join (part_categories, parts,by=c('id'='part_cat_id'))
+head(part_cat)
+```
+4. 将part_cat数据集和零件颜色数据集和零件清单数据集左连接，分别使用变量part_num和id，新数据集命名为part_color
+```{r}
+#跟上题一样
+part_cat$part_num <- as.character(part_cat$part_num)
+inventory_parts$part_num=as.character(inventory_parts$part_num)
+part_color_temp <- left_join(part_cat,inventory_parts,by=c('part_num'='part_num'))
+part_color <- left_join(part_color_temp,colors,by=c('color_id'='id'))
+part_color <- sqldf("select * from part_color where color_id!=9999")
+head(part_color)
+```
+5.  计算各颜色在零件当中出现的次数，并按降序排列，同时颜色名称和其rgb一一对应。结果保留在命名为partsp_color的数据集当中，变量分别命名为color_name、rbg、part_per_color
+```{r}
+#第五题统计次数考虑用n(),降序排列考虑用decrease
+part_n <- part_color[!duplicated(part_color[,c(4,9)]),]
+partsp_col <- part_n %>% group_by(color_name,rgb) %>% summarize(part_per_color=n())
+#排序
+partsp_col <- partsp_col[order(partsp_col$part_per_color,decreasing=T),]
+head(partsp_col)
+```
+6.  将套装和主题做连接,所用变量为theme_id,新的数据集命名为set_themes
+```{r}
+#第六题和第四题第三题一样，只不过结果要去掉全为NA的parent_id.
+set_themes <- left_join (themes,sets,by=c('id'='theme_id'))
+set_themes <- sqldf("select id, theme_name, set_num,set_name, year, num_parts from set_themes")
+head(set_themes)
+```
+7.  计算不同主题下套装的个数,将新的数据集命名为themes_per_set
+```{r}
+#第七题利用groupby函数分组，利用order排序输出
+themes_per_set <- set_themes %>% group_by(theme_name) %>% summarize(set_cnt=n())
+themes_per_set <- themes_per_set[order(themes_per_set$set_cnt,decreasing=T),];
+head(themes_per_set)
+```
+8.  将颜色和套装进行连接
+```{r}
+#使用内连接实现，使用sql语句实现表的连接最为方便
+inventory_sets$set_num <- as.character(inventory_sets$set_num)
+sets$set_num <- as.character(sets$set_num)
+set_color1 <- left_join(sets,inventories,by=c('set_num'='set_num'))
+set_color2 <- left_join(set_color1,inventory_parts,by=c('id'='inventory_id'))
+set_color <- inner_join(set_color2,colors,by=c('color_id'='id'))
+head(set_color)
+```
+9.  提取不同颜色的出现年份、使用年数、rgb,储存为scolor
+```{r}
+#使用groupby函数进行分组，使用年份可以用现在的年份-起始年份
+scolor <- set_color %>% group_by(color_name,rgb) %>% summarize(year=min(year),ys=2019-min(year))
+scolor <- scolor[order(scolor$year,decreasing=T),];
+head(scolor)
+```
+
+##任务四：绘制主题箱线图
+使用sets表中的信息，选取某一个theme_id,对其year与num_parts两列作出箱线图，并给出解读 
+```{r}
+#使用sqldf选择列表,使用ggplot2包画图
+set_one <- sqldf("select year,num_parts from sets where theme_id = 143")
+set_one$year <- as.character(set_one$year)
+p <- ggplot(data=set_one)
+p+geom_boxplot(aes(x=year,y=num_parts))+xlab('Year')+ylab('Num of Parts')+ggtitle('Plot of theme_id 143')
+```     
+
+    从箱线图可以看出：各年份推出的编号143乐高主题玩具所需零件数差异较大；1991年中每次推出的编号143乐高主题玩具所需零件数差异较大；1983年推出的编号143乐高主题玩具所需零件数普遍较大。故而可以推断乐高公司在经营过程中不断推陈出新增加主题玩具零件数，以实现更有挑战性并且更多彩缤纷的游戏体验，并且在1991年左右实现游戏多样化，不仅有复杂多样的玩具模式，也有简单易上手的玩具模式，让多个年龄段的客户都可以体验乐高玩具给他们带来的乐趣。
+
+##任务五：绘制主题数量时间序列图
+使用sets表中的信息，绘制乐高主题数量时间序列图,并给出解读 
+```{r}
+#首先计算每年的乐高数量，然后画图
+legao <- sqldf("select year,theme_id from sets")
+#去重
+legao <- unique(legao)
+#分组
+legao_num <- legao %>% group_by(year) %>% summarize(count=n())
+p <- ggplot(data=legao_num,mapping=aes(x=year,y=count))
+p+geom_line(size=0.5)+geom_point(size=0.8, shape=1)+xlab('Year')+ylab('The count of theme')
+```  
+  
+    解读：由时间序列图可以看出：乐高主题数量随时间波动上升，并且每年数量增量也在逐年上升故而可以推断出乐高公司不断推陈出新增加不同乐高主题，以实现顾客的多样体验，并及时下架不受欢迎的乐高主题，尽可能让每个客户满意。同时乐高公司的创新能力也在飞速成长，每年新推出的乐高主题数量都在增多。  
+##任务六:绘制零件类别所包含零件数量柱状图
+使用part_cat表中信息，绘制零件类别所包含零件数量柱状图,并给出解读   
+```{r}
+#首先分组统计每个类别的数量，然后画图
+c <- sqldf("select part_num,part_category_name from part_cat")
+c$part_category_name <- as.character(c$part_category_name)
+c_num<-c%>%group_by(part_category_name)%>%summarize(result=n())
+#排序
+c_num <- c_num[order(c_num$result,decreasing=F),];
+#调整level
+c_num$part_category_name  <-  factor(c_num$part_category_name,levels=as.vector(c_num$part_category_name))
+c_num_top <- c_num %>%  filter(result>200)
+p <- ggplot(data=c_num_top,mapping=aes(x=part_category_name,y=result,fill=result))
+p+ geom_bar(stat='identity',width=0.8)+xlab('Category')+ylab('The number of part')+ coord_flip()+ theme(text = element_text(size=9))
+```  
+ 
+     解读：本任务所关心的因变量是零件数量。柱状图可以看出，不同零件类别所对应的零件数量差异较大。其中minifig upper body所含零件数最多，这是由于乐高玩具中有各式各样的人物形象，每一种人物形象都会对应一个人仔（minifig），故而人仔上半身的零件数量远高于其他零件种类。
+
+##任务七：绘制颜色出现次数柱状图、历年颜色出现次数堆积图
+使用partsp_col表中数据绘制颜色出现次数柱状图、使用set_color绘制历年颜色出现次数堆积图,并给出解读 
+```{r}
+#先使用sqldf包进行数据清洗，然后进行绘图
+d <- sqldf("select color_name,rgb,part_per_color from partsp_col where rgb!='NA' and rgb!='#0033B2'")
+#排序
+d <- d[order(d$part_per_color,decreasing=T),];
+d$color_name  <-  factor(d$color_name,levels=as.vector(d$color_name))
+d_num_top <- d %>%  filter(part_per_color>500)
+p <- ggplot(data=d_num_top,mapping=aes(x=color_name,y=part_per_color))
+p+ geom_bar(stat='identity',width=0.9,fill=as.vector(d_num_top$rgb))+xlab('Color')+ylab('Part')+theme(axis.text.x=element_text(size=rel(1), angle=90))+guides(fill=F)+ylim(0,6000)
+
+```  
+ 
+     解读：本任务所关心的因变量是每种颜色出现的次数。由柱状图可以看出每种颜色出现次数有较大差异，其中白色和黑色数量较多，这说明乐高玩具的主要配色是黑色和白色。从图中还可以看出，乐高玩具的彩色配色以黄色和红色为多，同时玩具颜色也具有多样性的特点。
+```{r}
+#先使用sqldf包进行数据清洗，然后进行绘图
+e <- sqldf("select year,color_name,rgb from set_color where rgb!='#0033B2' and color_id!=9999 ")
+e$color_name <- as.character(e$color_name)
+#排序
+e <- e[order(e$year,decreasing=F),];
+e_num <- sqldf("select distinct year,rgb from e")
+#分组
+e_num <- e_num%>%group_by(year,rgb)%>%summarise(count_color=n())
+p <- ggplot(data=e_num,mapping=aes(x=year,y=count_color))
+p+ geom_bar(stat='identity',width=0.8,fill=as.vector(e_num$rgb))+xlab('Year')+ylab('The count of color')
+```  
+ 
+    解读：本任务所关心的因变量是历年颜色出现次数。从堆积柱状图可以看出，颜色出现次数随年份增加呈现先上升后下降最后平稳的变换。可以推断出乐高公司在2005年之前不断推出新的颜色样式，以实现多彩缤纷的游戏体验。在2005年之后，即使调整淘汰不受欢迎的颜色样式，保留受顾客喜欢的颜色样式，追求给顾客更舒适的游戏体验。在2010年之后颜色样式基本固定。

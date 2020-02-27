@@ -1,0 +1,154 @@
+---
+title: "ISLML_17307110448_Yunsiyu"
+author: "Yun Siyu"
+date: "2019年9月19日"
+output: html_document
+---
+##谁在看直播？
+案例背景：如今，饱受青睐的直播行业已进入“全民时代”，人人皆可为网络主播，人人皆有望成网络红人。不同于传统的文字、图片、视频等传播形式，直播紧密的将用户与直播内容交互在一起，受到了极大的追捧。网络直播迅速发展成为一种新的互联网文化业态。直播行为数据刻画了主播和用户的行为。通过爬取直播行为数据进行分析，可以对提高直播流量和主播的收入带来价值。案例原文详见谁在看直播。 案例数据提供了爬取的直播用户行为，每一列分别对应：房间编号（room_id），操作时间（time），用户名（user_name）以及操作类型（act_type）。数据的爬取时间是2017年4月27日至2017年6月27日。
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 准备工作
+```{r}
+#清除工作空间
+cat("\014");rm(list=ls())
+```
+
+```{r}
+#安装相应软件包
+library('plotly');
+library('rmarkdown');
+library('lubridate');
+library('sqldf');
+library('dygraphs');
+library('reshape2');
+library('dplyr');
+library('magrittr');
+library('scales');
+library('ggplot2');
+library('foreign');
+```
+
+## 任务一
+分别找到数据863.tsv和1038864.tsv。读入样本数据，分别命名为room1和room2。
+```{r}
+room1=read.table('E:\\学习资料\\大三上\\机器学习概论\\作业\\863.tsv',fileEncoding='UTF-8',header=T);
+room2=read.table('E:\\学习资料\\大三上\\机器学习概论\\作业\\1038864.tsv',fileEncoding='UTF-8',header=T);
+```
+
+
+
+##任务二
+把数据中的操作时间列（time）转换为时间类型POSIXct。把两份数据rbind到一起，命名为room。
+```{r}
+room1$time=as.POSIXct(room1$time,origin ='1970-01-01');
+room2$time=as.POSIXct(room2$time,origin ='1970-01-01');
+room<-rbind(room1,room2);
+head(room)
+```
+**分析**    
+rbind是按行合并，可以实现将不同的观测对象但相同观测变量的合并     
+cbind是按列合并，可以实现将相同观测对象得出的不同类型变量的合并    
+merge是具有相同时间或者观测值，但是列不尽相同   
+
+##任务三
+分房间统计用户操作数；分房间统计用户操作类型数。
+```{r}
+table(room$room_id,room$act_type,dnn=c('room_id','act_type'))
+```
+**分析**    
+由act_type表可知    
+（1）863房间的弹幕量较1038864房间多一些，故而863房间用户发言比较积极。    
+（2）1038864房间的礼物量较863房间多一些，故而1038864房间用户打赏比较多。    
+（3）故而根据实际经验，863房间直播内容可能是颜值主播在跟观众聊天，而1038864房间直播内容可能是游戏主播在玩游戏。   
+
+##任务四
+分周内每天（周一、周二、依次类推）统计两个房间总的日均操作数
+```{r}
+a=room;
+c=room;
+a$time=wday(a$time,label=T);
+a1=table(a$time)
+c$time=as.Date(c$time,format='%Y-%m-%d');
+c1=table(c$time,dnn=c('time'));
+c1=names(c1);
+c1=as.Date(c1);
+c1=wday(c1,label=T);
+c2=table(c1);
+a1=a1/c2;
+a1=data.frame(time=c(names(a1)),count=c(as.numeric(a1)))
+a1$count=round(a1$count,2)
+a1$time = factor(a1$time, levels=c('周日','周一','周二','周三','周四','周五','周六'))
+a1<-a1%>%rename('日均操作量'=count);
+p=ggplot(data=a1,mapping=aes(x=time,y=日均操作量/10000,group=factor(日均操作量)))+geom_bar(stat="identity")+xlab('星期')+ylab('操作量(万次)')
+ggplotly(p, dynamicTicks = TRUE) 
+```
+
+##任务五
+分小时（0时、1时、依次类推）分房间统计房间操作数，并绘制交互时序图
+```{r}
+b=room;
+b$time<-hour(b$time);
+b1<-b %>% group_by(time,room_id) %>% summarize(count=n()/10000);
+b8=sqldf("select time, count as '游戏' from b1 where room_id=863");
+b10=sqldf("select time, count as '颜值' from b1 where room_id!=863");
+b0=merge(b8,b10,all=T);
+b0[is.na(b0)]<-0
+dygraph(b0,xlab='时间',ylab='操作量（万次）',main='二十四小时操作量分布')%>%
+dyOptions(fillGraph = TRUE)
+```
+**分析**      
+两个房间的流量是存在高峰期的，但是两个房间的高峰期是不同步的。推测原因可能是游戏主播一般更倾向于在晚间直播打游戏而颜值主播一般是在晚饭的时候给观众表演节目。
+
+##任务六
+计算两个房间总的按用户提取的RFM特征。
+```{r}
+#df_rfm表容纳用户RFM特征
+max_time= max(room$time)
+df_rfm<-room%>%group_by(user_name)%>%summarize(recency=(difftime(max_time,max(time),units="hour")),frequenci=mean(abs(as.numeric(diff(sort(time))))),monetary=n())
+df_rfm$user_name=as.character(df_rfm$user_name)
+df_rfm$recency=as.numeric(df_rfm$recency)
+```
+**分析**      
+近度R（Recency）反映用户最近使用直播平台的情况，该值越小越好，因为较小的R值说明越靠近现在用户使用过直播平台。   
+频度F（Frequency）反映用户在一段时间内使用直播平台的频率，因为本题中算得是时间间隔，故而是频率的倒数，该值越小越好，因为较小的F值说明用户在一段时间内经常使用直播平台。   
+强度M（Monetary）反映用户在直播平台的行为，该值越大越好，因为较大的M值说明用户在直播平台较活跃。   
+
+##任务七
+根据任务六提取的特征，对数据做summary，并进行分析。
+```{r}
+summary(df_rfm)
+```
+**分析**     
+1. R=短 F=低 M=高  
+这里用户的价值最大。这类用户使用直播平台的频率和在直播平台的活跃度均较高。针对这类用户，主播可以多多关注他们，尽可能给予他们回应和感谢，可以有效增加自己的流量和打赏。    
+2. R=短 F=高 M=低    
+这类用户虽然最近使用过直播平台，但是使用频率和在直播平台的活跃度较低。针对这类用户，主播可以推陈出新，利用新鲜感让他们留在自己的房间。   
+3. R=短 F=高 M=高   
+这类用户是打赏和流量的主要贡献者，虽然频率较低但是每次到直播平台都十分活跃。这类用户的价值关键点在于可以通过提高他们使用直播平台的频次来加大对主播的贡献。建议主播逐一了解这些用户的兴趣点和偏好，让他们更愿意多次来到直播间。    
+4. R=长 F=低 M=高     这类用户虽然比较活跃而且频率较高的进入过直播间，但是容易“溜走”。直播要有针对性的挽留措施，可以给他们一些每日福利，让他们不“溜走”。  
+```{r}
+max_time1= max(room1$time)
+df_rfm1<-room1%>%group_by(user_name)%>%summarize(recency=(difftime(max_time1,max(time),units="hour")),frequenci=mean(abs(as.numeric(diff(sort(time))))),monetary=n())
+df_rfm1$user_name=as.character(df_rfm1$user_name)
+df_rfm1$recency=as.numeric(df_rfm1$recency)
+summary(df_rfm1)
+```
+```{r}
+max_time2= max(room2$time)
+df_rfm2<-room2%>%group_by(user_name)%>%summarize(recency=(difftime(max_time2,max(time),units="hour")),frequenci=mean(abs(as.numeric(diff(sort(time))))),monetary=n())
+df_rfm2$user_name=as.character(df_rfm2$user_name)
+df_rfm2$recency=as.numeric(df_rfm2$recency)
+summary(df_rfm2)
+```
+假设R指标小于1st Qu.，F指标小于1rd Qu.，M指标大于3rd Qu.以上三个条件均满足的为高价值用户。
+```{r}
+highvalue_room1=sqldf("select* from df_rfm1 where recency<=194.2 and frequenci<=7.3 and monetary>=4")
+highvalue_room2=sqldf("select* from df_rfm2 where recency<=291.5 and frequenci<=4.8 and monetary>=4")
+nrow(highvalue_room1)
+nrow(highvalue_room2)
+```
+故而可以得出，房间863中高价值用户数有299位，房间1038864中高价值用户数有254位。

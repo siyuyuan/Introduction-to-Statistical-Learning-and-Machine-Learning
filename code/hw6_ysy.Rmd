@@ -1,0 +1,104 @@
+---
+title: "ISLML_17307110448_员司雨_hw6"
+author: "员司雨"
+date: "2019年10月30日"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#清除工作空间
+cat("\014");rm(list=ls())
+```
+
+# 某移动通讯客户流失预警分析案例
+
+案例背景：目前在我国移动通讯行业基本呈现三足鼎立的局势，市场份额由中国移动、中国联通和中国电信三家运营商瓜分。客户流失问题非常严重，从近5年的统计数字来看，三家运营商的移动客户数增长缓慢，中国联通在2015年甚至出现了负增长。因此建立一套系统的客户流失预警体系已是燃眉之急。案例原文详见某移动通讯公司客户流失预警分析  
+本案例使用的数据来自国内某运营商，数据已经进行了清理，数据集中的变量包括：  
+【因变量】  
+是否流失：1=流失；0=非流失  
+【自变量】  
+在网时长（tenure）：客户从入网到截止数据提取日期时在网时间，单位：天  
+当月花费（expense）：客户在提取月份时的花费总额，单位：元  
+个体的度（degree）：和客户通话的总人数，去重之后的呼入与呼出贾总，单位： 人数  
+联系强度（tightness）：通话总时间除以总人数，单位：分钟/人  
+个体信息熵（entropy）：计算公式详见数据说明  
+个体度的变化（chgdegree）：（本月个体的度-上月个体的度）/上月个体的度  
+花费的变化（chgexpense）：（本月花费-上月花费）/上月花费  
+
+##准备工作
+清除工作环境，安装和加载一些需要的包。
+```{r}
+#清除工作空间
+cat("\014");rm(list=ls())
+library("dplyr")
+library("pROC")
+```
+##任务一
+读入数据并检查是否有异常值存在，如果观测值超出均值加减3倍标准差的范围，则进行删除。分别用summary函数展示异常值处理之前与之后的数据。
+```{r}
+#使用read.csv函数读入数据集
+preddata = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\course_files_export\\assignment6\\preddata.csv')
+sampledata = read.csv('E:\\学习资料\\大三上\\机器学习概论\\作业\\course_files_export\\assignment6\\sampledata.csv')
+```
+
+```{r}
+summary(sampledata)
+```
+```{r}
+#记录边界
+list_mean <- apply(sampledata,2,mean)
+list_sd <- apply(sampledata,2,sd)
+list_max <- list_mean+3*(list_sd)
+list_min <- list_mean-3*(list_sd)
+```
+
+
+```{r}
+#删除数据（一次性）
+sampledata <-sampledata %>% filter(sampledata$tenure <= list_max[2] & sampledata$tenure >= list_min[2])
+sampledata <-sampledata %>% filter(sampledata$expense <= list_max[3] & sampledata$expense >= list_min[3])
+sampledata <-sampledata %>% filter(sampledata$degree <= list_max[4] & sampledata$degree >= list_min[4])
+sampledata <-sampledata %>% filter(sampledata$tightness <= list_max[5] & sampledata$tightness >= list_min[5])
+sampledata <-sampledata %>% filter(sampledata$entropy <= list_max[6] & sampledata$entropy >= list_min[6])
+sampledata <-sampledata %>% filter(sampledata$chgexpense <= list_max[7] & sampledata$chgexpense >= list_min[7])
+sampledata <-sampledata %>% filter(sampledata$chgdegree <= list_max[8] & sampledata$chgdegree >= list_min[8])
+```
+
+```{r}
+summary(sampledata)
+```
+
+##任务二
+先对自变量进行标准化，使得其均值为0，方差为1。然后拟合逻辑回归模型，给出标准化系数估计结果。
+```{r}
+#scale函数实现标准化
+sampledata[2:8] <- scale(sampledata[2:8] ,center=T,scale=T) 
+```
+
+```{r}
+lm1 <- glm(churn~tenure + expense + degree + tightness +entropy + chgdegree + chgexpense, data=sampledata, family = binomial(link = logit))
+summary(lm1)
+```
+##任务三
+将任务二中的参数估计结果应用到predata中，给出predata中每个用户预测的流失概率值，展示前6行的预测结果。
+```{r}
+#将preddata标准化之后再预测
+preddata[2:8] <- scale(preddata[2:8] ,center=T,scale=T)
+Yhat <- predict(lm1, newdata=preddata, type="response")
+head(Yhat)
+```
+
+##任务四
+绘制覆盖率-捕获率曲线。逻辑回归的评价指标ROC曲线（或AUC值）我们已经非常熟悉了，那么什么是覆盖率-捕获率曲线呢？其实和ROC曲线差不多，只不过在业界比较常用。可以这样理解覆盖率-捕获率曲线：根据模型给出每个样本的预测流失概率值，按照预测值从高到低对样本进行排序，例如只覆盖前10%的样本，计算对应的真实流失的样本数占所有流失样本数的比例，记为捕获率，以此类推，可以覆盖不同比例的样本，就可以计算不同的覆盖率对应的捕获率，从而得到覆盖率捕获率曲线，如果在较低的覆盖率情况可以获得较高的捕获率，那么说明模型的精度比较高。因此在绘制的时候需要借助循环，计算不同的覆盖率下的捕获率是多少，最后进行曲线的绘制。
+```{r}
+
+sub <- seq(0,1,0.025)
+tol <- sum(preddata$churn)
+catch <- sapply(sub,function(s){
+  ss <- quantile(Yhat, 1-s) #利用quantile函数找到真实流失的样本数占所有流失样本数的比例
+  res <- sum(preddata$churn[Yhat > ss])/tol
+  return(res)
+})
+plot(sub,catch,type = 'l', xlab='覆盖率', ylab='捕获率') #plot函数绘制图像
+```
+
